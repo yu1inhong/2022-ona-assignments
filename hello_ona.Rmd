@@ -8,8 +8,8 @@ output: github_document
 Below are the codes that load the tidyverse and igraph libraries:
 
 ```{r cars}
-library(igraph)
-library(tidyverse)
+library("igraph")
+library("tidyverse")
 ```
 
 Hello, network!
