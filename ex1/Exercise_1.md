@@ -1,10 +1,3 @@
----
-output:
-  pdf_document: 
-    latex_engine: xelatex
-    keep_tex: yes
-  html_document: default
----
 ex 1: linkedin network
 ================
 
