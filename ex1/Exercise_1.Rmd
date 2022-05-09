@@ -1,0 +1,86 @@
+---
+title: "ex 1: linkedin network"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import the File
+
+Download linkedin network file and import to R:
+
+```{r}
+library(tidyverse)
+library(janitor)
+df = read_csv("/Users/hong/Desktop/McGill/ORGB/Connections.csv")
+df <- clean_names(df)
+df
+```
+
+## Data Cleaning
+
+Some company start with mcgill but has specific department, I will change all of them to just mcgill university". Similar for Ubisoft. Some people label their company as Ubisoft while others add specific studios after ubisoft.
+```{r}
+df <- df %>% 
+  mutate(company = replace(company, str_detect(company, "McGill University"), "McGill University"))
+
+df <- df %>% 
+  mutate(company = replace(company, str_detect(company, "Ubisoft"), "Ubisoft"))
+```
+## Total number of contact:
+```{r}
+length(df$first_name)
+```
+
+
+## Plot the Counting result
+```{r}
+library(dplyr)
+company_count = df %>% count(company, sort = TRUE) ## count the number of ppl in each company
+
+## plot the counts
+company_count %>% ggplot(aes(y = reorder(company,n), x=n))+
+  geom_col(fill="grey") +theme(text = element_text(size = 8)) +
+  labs(
+    x = "Connection Counts",
+    y = "Company"
+  )
+```
+## Create Nodes:
+
+```{r}
+## Concat first name last name
+name =  paste0(df$first_name,"_", df$last_name)
+df$name = name
+nodes <- df %>% select(name)
+```
+## Adding Connection Edges:
+```{r}
+## Concat first name last name
+
+df1 <- data.frame(df$name,df$company)
+df2 <- data.frame(df$name,df$company)
+edges <- full_join(df1, df2, by = "df.company")
+names(edges) <- c("from", "company", "to")
+
+
+```
+## Linkedin Network
+```{r}
+library("ggraph")
+library("tidygraph")
+network <- tbl_graph(nodes=nodes, edges=edges, directed=FALSE)
+network
+
+```
+## Plot:
+```{r}
+ggraph(network, layout = "graphopt") + 
+  geom_edge_link(aes(color = company), show.legend = FALSE) + 
+  geom_node_point()+
+  theme_graph()
+```
+
+
