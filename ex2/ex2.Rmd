@@ -1,0 +1,94 @@
+---
+title: "ex2 facebook bus"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Ex 2 Facebook Bus
+First I create a dataset based on the seats on the bus. The connection rule is: communication is really possible with adjacent seats only, but any type of adjacency works: side, front, back, diagonal, even across the aisle.
+
+## Load the csv sheet
+```{r}
+library(tidyverse)
+df = read_csv("~/Desktop/McGill/ORGB/2022-ona-assignments/ex2/facebook_bus.csv")
+library(dplyr)
+## preprocessing
+## change all the node type to character
+df <- df %>%
+        mutate(node_1 = as.character(node_1))
+df <- df %>%
+        mutate(node_2 = as.character(node_2))
+```
+## Create a network based on the relationship
+```{r}
+library("ggraph")
+library("tidygraph")
+nodes <- data.frame(nodes = c(1,2,3,4,5,6,"A","B","C","D"))
+edges = df
+network <- tbl_graph(nodes=nodes, edges=edges, directed=FALSE)
+```
+
+```{r}
+## plotting
+ggraph(network, layout = "graphopt") + 
+  geom_edge_link() + 
+  geom_node_point()+geom_node_text(aes(label = nodes),repel = TRUE)
+  theme_graph()
+
+```
+## Calculate various measures of centrality
+```{r}
+## centrality degree
+network_centrality_degree = network %>%
+  activate(nodes) %>%
+  mutate(degree = centrality_degree()) %>%
+  as_tibble()
+
+## centrality betweeness
+network_betweenness_centrality = network %>%
+  activate(nodes) %>%
+  mutate(betw = centrality_betweenness()) %>%
+  arrange(desc(betw)) %>% as_tibble()
+```
+```{r}
+network_centrality_degree
+```
+```{r}
+network_betweenness_centrality
+```
+## Choice of Seats
+The \textbf{degree centrality} of a node is simply its degree—the number of edges it has.
+
+\textbf{Betweenness centrality} measures the extent to which a vertex lies on paths between other vertices. Vertices with high betweenness may have considerable influence within a network by virtue of their control over information passing between others. 
+
+In order to maximize the change of building a relationship between co-workers, I will need to pick a seat that can talk to as much people as possible, meaning a seats with high centrality degree. Also, I would like a seat with high betweenness centrality, because that seats will help me passing information to others.
+
+If we calculate the "value" of a seats by adding the degree centrality and betweenness centrality. The seat that has the highest value will be B. This choice is beneficial if seats D,C and A will be filled. It will be even more beneficial if people who will seat at D,C or C are permanent worker at facebook. It is not so beneficial if people who seat at D,C or A are interns like me. It is even less benificial if no one will seats at D,C and A.
+
+## Plot the network graph with labels and centrality values
+```{r}
+name <- c("1","2","3","4","5","6","A","B","C","D")
+deg_cen <- c(1,2,5,2,3,3,3,5,5,5)
+bwt_cen <- c(0,8,4.63,0,0.5333333,0.9333333,14,9.0333333,8.6000000,3.2666667)
+nodes <- data.frame(name, deg_cen,bwt_cen)
+
+network_2 <- tbl_graph(nodes=nodes, edges=edges, directed=FALSE)
+```
+### Plot based on degree centrality
+```{r}
+ggraph(network, layout = "graphopt") + 
+  geom_edge_link() + 
+  geom_node_point(aes(size = deg_cen))+geom_node_text(aes(label = nodes),repel = TRUE)
+  theme_graph()
+```
+### Plotting based on betweenness centrality
+```{r}
+ggraph(network, layout = "graphopt") + 
+  geom_edge_link() + 
+  geom_node_point(aes(size = bwt_cen))+geom_node_text(aes(label = nodes),repel = TRUE)
+  theme_graph()
+```
+
