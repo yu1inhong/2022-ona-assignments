@@ -178,7 +178,7 @@ df$tenure = tenure_info$tenure_days
 
 ## Pick two workgroup
 
-The two group I pick is 1648 and 1722. 1600 – Biotechnology 1700 –
+The two group I pick is 164 and 172. 1600 – Biotechnology 1700 –
 Chemical and Materials Engineering
 
 ``` r
