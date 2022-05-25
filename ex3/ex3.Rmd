@@ -1,0 +1,315 @@
+---
+title: "ex3"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the data
+```{r,warnings = FALSE}
+library(arrow)
+df = read_parquet("~/Desktop/McGill/ORGB/2022-ona-assignments/ex3/app_data_sample.parquet")
+```
+## Predicting examiners' gender based on first name:
+The gender package attempts to infer gender (or more precisely, sex assigned at birth) based on first names using historical data, typically data that was gathered by the state.
+
+```{r, warnings = FALSE}
+library(gender)
+library(dplyr)
+first_name = df %>%distinct(examiner_name_first)
+gender_probability = gender(first_name$examiner_name_first)
+gender_dictionary = gender_probability %>% select(name,gender)
+df <- df %>% left_join(gender_dictionary, by = c("examiner_name_first" = "name"))
+head(df$gender)
+
+```
+The gender package assign gender based on historical data. Some of the name is not in the data set, thus there are some missing gender information. I filled those values by distribution.
+```{r, warnings = FALSE}
+table(is.na(df$gender))
+gender_na = is.na(df$gender)
+gender_fill = sample(df$gender[!gender_na], size = sum(gender_na), replace = TRUE)
+df$gender[is.na(df$gender)] <- gender_fill
+table(is.na(df$gender))
+```
+All the missing value has been filled.
+
+## Predicting examiners' race based on last name:
+The "predictrace" package predict the race of a surname using U.S. Census data which says how many people of each race has a certain surname.
+```{r,warnings = FALSE}
+library(predictrace)
+race = predict_race(df$examiner_name_last, probability = FALSE)
+df$race = race$likely_race
+head(df$race,10)
+```
+Again, fill the missing values based on distribution.
+```{r, warnings = FALSE}
+table(is.na(df$race))
+race_na = is.na(df$race)
+race_fill = sample(df$race[!race_na], size = sum(race_na), replace = TRUE)
+df$race[is.na(df$race)] <- race_fill
+table(is.na(df$race))
+```
+## Calculate Tenure
+To calculate tenure, I need to calculate the time the application stay in the system.
+
+For most applications, the filing date is the date on which PTO received the application.
+
+The appl_status_date variable indicates the date that the application entered its most recent status (or status as of the end of 2014). 
+```{r, warnings = FALSE}
+tenure_info <- df %>% select(examiner_id, filing_date, appl_status_date)
+
+library(lubridate)
+tenure_info = tenure_info %>% mutate(appl_status_date = as_date(dmy_hms(appl_status_date))) 
+tenure_info$tenure_days = as.numeric(difftime(tenure_info$appl_status_date,tenure_info$filing_date,units="days"))
+
+## detect missing values
+table(is.na(tenure_info$tenure_days))
+
+## fill missing values
+tenure_na = is.na(tenure_info$tenure_days)
+tenure_fill = sample(tenure_info$tenure_days[!tenure_na], size = sum(tenure_na), replace = TRUE)
+tenure_info$tenure_days[is.na(tenure_info$tenure_days)] <- tenure_fill
+table(is.na(tenure_info$tenure_days))
+
+## join with df
+df$tenure = tenure_info$tenure_days
+```
+
+## Pick two workgroup
+The two group I pick is 1648 and 1722.
+1600 – Biotechnology
+1700 – Chemical and Materials Engineering
+```{r}
+wg = as.numeric(substr(df$examiner_art_unit, 1, 3))
+df$wg = wg
+group_164 = df %>% filter(df$wg == 164)
+group_172 = df %>% filter(df$wg == 172)
+
+```
+### Examing Group 1648
+
+```{r}
+## summary
+table(group_164$gender)
+```
+
+```{r}
+table(group_164$race)
+```
+
+
+### Examing Group 1722
+
+```{r}
+## summary
+table(group_172$gender)
+```
+
+```{r}
+table(group_172$race)
+```
+
+```{r}
+two_group_gender <- t(cbind(table(group_164$gender), table(group_172$gender)))
+
+barplot(two_group_gender, beside=T, col=c("red","blue")) 
+par(xpd=T)
+legend("top",legend = c("164","172"), fill=c("red","blue"), cex = 0.5)
+```
+```{r, echo=FALSE,warning=FALSE,message=FALSE,error=FALSE,results='hide',fig.keep='all'}
+
+two_group_race <- t(cbind(table(group_164$race), table(group_172$race)))
+
+two_group_race[1,1] = 0
+
+barplot(two_group_race, beside=T, col=c("red","blue")) 
+par(xpd=T)
+legend("top",legend = c("164","172"), fill=c("red","blue"), cex = 0.5)
+```
+## Create advice networks from edges-sample
+
+```{r, message=FALSE}
+library(tidyverse)
+net = read_csv("~/Desktop/McGill/ORGB/2022-ona-assignments/ex3/edges_sample.csv")
+
+edges_164 = inner_join(df %>% filter(wg == 164),net,by = c("application_number" = "application_number")) %>% select(ego_examiner_id,alter_examiner_id,examiner_art_unit)
+
+colnames(edges_164) = c("from","to","art_unit")
+edges_164 = drop_na(edges_164)
+
+edges_172 = inner_join(df %>% filter(wg == 172),net,by = c("application_number" = "application_number")) %>% select(ego_examiner_id,alter_examiner_id,examiner_art_unit)
+
+colnames(edges_172) = c("from","to","art_unit")
+edges_172 = drop_na(edges_172)
+```
+### Create Nodes
+```{r,message=FALSE}
+edges = rbind(edges_164,edges_172)
+node_ego = edges %>% select(from,art_unit) %>%rename(id=from) 
+node_alter = edges %>% select(to,art_unit)%>%rename(id=to)
+nodes_all <-rbind.data.frame(node_ego, node_alter)
+
+nodes = nodes_all %>% distinct(id)
+
+nodes = nodes %>% mutate(id = as.character(id))
+```
+
+
+### Create Graph
+```{r,warning=FALSE}
+library(igraph)
+
+net_164 = graph_from_data_frame(d=edges_164, vertices=nodes, directed=TRUE)
+net_164
+net_172 = graph_from_data_frame(d=edges_172, vertices=nodes, directed=TRUE)
+```
+
+## Pick the mesure of centrality
+1. Degree centrality is defined as the number of links incident upon a node
+2. Eigenvector Centrality is an algorithm that measures the transitive influence of nodes. A high eigenvector score means that a node is connected to many nodes who themselves have high scores.
+3. Closeness centrality is a measure of the average shortest distance from each vertex to each other vertex
+4. Betweenness centrality is a way of detecting the amount of influence a node has over the flow of information in a graph.
+```{r}
+## Degree Centrality
+V(net_164)$dc <- degree(net_164)
+V(net_172)$dc <- degree(net_172)
+
+## Eigenvector Centrality
+V(net_164)$ec <- evcent(net_164)$vector
+V(net_172)$ec <- evcent(net_172)$vector
+
+## Closeness Centrality
+V(net_164)$cc <- closeness(net_164)
+V(net_172)$cc <- closeness(net_172)
+
+## Betweenness Centrality
+V(net_164)$bc <- betweenness(net_164)
+V(net_172)$bc <- betweenness(net_172)
+
+```
+## Plot the network based on centrality
+```{r}
+library(ggraph)
+library(ggplot2)
+library(ggpubr)
+# Degree Centrality
+dc_164 = ggraph(net_164, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=dc), show.legend=T) + ggtitle("Degree Centrality 164")
+
+# Eigenvector Centrality
+ec_164<-ggraph(net_164, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=ec), show.legend=T) + ggtitle("Eigenvector Centrality 164")
+
+# Closeness Centrality
+cc_164<-ggraph(net_164, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=cc), show.legend=T) + ggtitle("Closeness Centrality 164")
+
+# Betweenness Centrality
+bc_164<-ggraph(net_164, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=bc), show.legend=T) + ggtitle("Betwenness Centrality 164")
+```
+
+## Centrality Scores
+```{r}
+centrality_164 <- data.frame(
+                             id = V(net_164)$name,
+                         degree      = V(net_164)$dc,
+                         closeness   = V(net_164)$cc,
+                         betweenness = V(net_164)$bc,
+                         eigenvector = V(net_164)$ec)
+centrality_164
+```
+```{r}
+centrality_172 <- data.frame(id = V(net_164)$name,
+                         degree      = V(net_172)$dc,
+                         closeness   = V(net_172)$cc,
+                         betweenness = V(net_172)$bc,
+                         eigenvector = V(net_172)$ec)
+centrality_172
+```
+
+```{r}
+ggarrange(dc_164,ec_164,cc_164,bc_164,ncol = 2, nrow = 2)
+```
+
+```{r}
+dc_172 = ggraph(net_172, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=dc), show.legend=T) + ggtitle("Degree Centrality 172")
+
+# Eigenvector Centrality
+ec_172<-ggraph(net_172, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=ec), show.legend=T) + ggtitle("Eigenvector Centrality 172")
+
+# Closness Centrality
+cc_172<-ggraph(net_172, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=cc), show.legend=T) + ggtitle("Closeness Centrality 172")
+
+# Betwenness Centrality
+bc_172<-ggraph(net_172, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=bc), show.legend=T) + ggtitle("Betweenness Centrality 172")
+```
+
+
+```{r}
+ggarrange(dc_172,ec_172,cc_172,bc_172,ncol = 2, nrow = 2)
+```
+
+
+Based on the graph, seems like closeness centrality has clearer cluster center.
+
+## Characterize and discuss the relationship between centrality and other examiners’characteristics
+
+```{r}
+ggraph(net_164, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=cc), show.legend=T) +geom_node_text(aes(label = centrality_164$id), repel=TRUE, size=2)+ ggtitle("Closeness Centrality 164")
+```
+
+```{r}
+ggraph(net_172, layout="kk") +
+  geom_edge_link()+
+  geom_node_point(aes(size=cc), show.legend=T) +geom_node_text(aes(label = centrality_172$id), repel=TRUE, size=2)+ ggtitle("Closeness Centrality 172")
+
+```
+### Gather all examiner characteristics
+```{r}
+examiner = df %>% select(examiner_id,examiner_art_unit,gender,race,tenure)
+examiner = distinct(examiner)
+```
+
+
+### Examiner that are in group 164 and has the highest closeness centrality
+```{r,warning=FALSE}
+max_cc_164 = max(centrality_164$closeness[!is.na(centrality_164$closeness)])
+max_cc_164_id = centrality_164 %>% filter(centrality_164$closeness ==max_cc_164) %>%select(id)
+max_cc_164_id = max_cc_164_id %>% mutate(id = as.numeric(id))
+max_cc_164_info = examiner %>%filter(examiner_id == max_cc_164_id$id)
+
+table(max_cc_164_info$gender)
+
+table(max_cc_164_info$race)
+```
+Examiners that has higher closeness centrality in group 164, are more likely to be while male.
+
+### Examiner that are in group 172 and has the highest closeness centrality
+```{r,warning=FALSE}
+max_cc_172 = max(centrality_172$closeness[!is.na(centrality_172$closeness)])
+max_cc_172_id = centrality_172 %>% filter(centrality_172$closeness ==max_cc_172) %>%select(id)
+max_cc_172_id = max_cc_172_id %>% mutate(id = as.numeric(id))
+max_cc_172_info = examiner %>%filter(examiner_id == max_cc_172_id$id)
+
+table(max_cc_172_info$gender)
+
+table(max_cc_172_info$race)
+```
+The examiners that has higher closeness centrality in group 172 are mostly male comparing to group 164. Also, there are more Hispanic examiners that are influencial in this group.
