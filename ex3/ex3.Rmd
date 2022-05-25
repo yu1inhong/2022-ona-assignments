@@ -223,7 +223,7 @@ centrality_164 <- data.frame(
                          closeness   = V(net_164)$cc,
                          betweenness = V(net_164)$bc,
                          eigenvector = V(net_164)$ec)
-centrality_164
+head(centrality_164)
 ```
 ```{r}
 centrality_172 <- data.frame(id = V(net_164)$name,
@@ -231,7 +231,7 @@ centrality_172 <- data.frame(id = V(net_164)$name,
                          closeness   = V(net_172)$cc,
                          betweenness = V(net_172)$bc,
                          eigenvector = V(net_172)$ec)
-centrality_172
+head(centrality_172)
 ```
 
 ```{r}
