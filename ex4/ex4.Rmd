@@ -1,0 +1,193 @@
+---
+title: "ex4"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+All the preposessing steps are the same as EX3.
+## Load the data
+```{r,warnings = FALSE}
+library(arrow)
+df = read_parquet("~/Desktop/McGill/ORGB/2022-ona-assignments/ex3/app_data_sample.parquet")
+```
+## Predicting examiners' gender based on first name:
+The gender package attempts to infer gender (or more precisely, sex assigned at birth) based on first names using historical data, typically data that was gathered by the state.
+
+```{r, warnings = FALSE}
+library(gender)
+library(dplyr)
+first_name = df %>%distinct(examiner_name_first)
+gender_probability = gender(first_name$examiner_name_first)
+gender_dictionary = gender_probability %>% select(name,gender)
+df <- df %>% left_join(gender_dictionary, by = c("examiner_name_first" = "name"))
+head(df$gender)
+
+```
+The gender package assign gender based on historical data. Some of the name is not in the data set, thus there are some missing gender information. I filled those values by distribution.
+```{r, warnings = FALSE}
+table(is.na(df$gender))
+gender_na = is.na(df$gender)
+gender_fill = sample(df$gender[!gender_na], size = sum(gender_na), replace = TRUE)
+df$gender[is.na(df$gender)] <- gender_fill
+table(is.na(df$gender))
+```
+All the missing value has been filled.
+
+## Predicting examiners' race based on last name:
+The "predictrace" package predict the race of a surname using U.S. Census data which says how many people of each race has a certain surname.
+```{r,warnings = FALSE}
+library(predictrace)
+race = predict_race(df$examiner_name_last, probability = FALSE)
+df$race = race$likely_race
+head(df$race,10)
+```
+Again, fill the missing values based on distribution.
+```{r, warnings = FALSE}
+table(is.na(df$race))
+race_na = is.na(df$race)
+race_fill = sample(df$race[!race_na], size = sum(race_na), replace = TRUE)
+df$race[is.na(df$race)] <- race_fill
+table(is.na(df$race))
+```
+## Calculate Tenure
+To calculate tenure, I need to calculate the time the application stay in the system.
+
+For most applications, the filing date is the date on which PTO received the application.
+
+The appl_status_date variable indicates the date that the application entered its most recent status (or status as of the end of 2014). 
+```{r, warnings = FALSE}
+tenure_info <- df %>% select(examiner_id, filing_date, appl_status_date)
+
+library(lubridate)
+tenure_info = tenure_info %>% mutate(appl_status_date = as_date(dmy_hms(appl_status_date))) 
+tenure_info$tenure_days = as.numeric(difftime(tenure_info$appl_status_date,tenure_info$filing_date,units="days"))
+
+## detect missing values
+table(is.na(tenure_info$tenure_days))
+
+## fill missing values
+tenure_na = is.na(tenure_info$tenure_days)
+tenure_fill = sample(tenure_info$tenure_days[!tenure_na], size = sum(tenure_na), replace = TRUE)
+tenure_info$tenure_days[is.na(tenure_info$tenure_days)] <- tenure_fill
+table(is.na(tenure_info$tenure_days))
+
+## join with df
+df$tenure = tenure_info$tenure_days
+```
+
+## Create variable ‘app_proc_time’
+
+```{r}
+app_proc_time <- c()
+for (i in 1:length(df$application_number)){
+  if (is.na(df$abandon_date[i])){
+    app_proc_time[i] = as.numeric(difftime(df$patent_issue_date[i],df$filing_date[i],units="days"))
+  }
+  else{
+    app_proc_time[i] = as.numeric(difftime(df$abandon_date[i],df$filing_date[i],units="days"))
+  
+  }
+}
+
+df$app_proc_time = app_proc_time
+```
+
+
+## Pick two workgroup
+The two group I pick is 164 and 172.
+1600 – Biotechnology
+1700 – Chemical and Materials Engineering
+```{r}
+wg = as.numeric(substr(df$examiner_art_unit, 1, 3))
+df$wg = wg
+group_164 = df %>% filter(df$wg == 164)
+group_172 = df %>% filter(df$wg == 172)
+
+```
+
+
+## Create advice networks from edges-sample
+
+```{r, message=FALSE}
+library(tidyverse)
+net = read_csv("~/Desktop/McGill/ORGB/2022-ona-assignments/ex3/edges_sample.csv")
+
+edges_164 = inner_join(df %>% filter(wg == 164),net,by = c("application_number" = "application_number")) %>% select(ego_examiner_id,alter_examiner_id,examiner_art_unit,app_proc_time,race,gender,tenure)
+edges_164 = drop_na(edges_164)
+
+edges_172 = inner_join(df %>% filter(wg == 172),net,by = c("application_number" = "application_number")) %>% select(ego_examiner_id,alter_examiner_id,examiner_art_unit,app_proc_time,race,gender,tenure)
+edges_172 = drop_na(edges_172)
+```
+### Create Nodes
+```{r,message=FALSE}
+edges = rbind(edges_164,edges_172)
+node_ego = edges %>% select(ego_examiner_id) %>%rename(id=ego_examiner_id) 
+node_alter = edges %>% select(alter_examiner_id)%>%rename(id=alter_examiner_id)
+nodes_all <-rbind.data.frame(node_ego, node_alter)
+
+nodes = nodes_all %>% distinct(id)
+
+
+```
+
+
+### Create Graph
+```{r,warning=FALSE}
+library(igraph)
+
+net_164 = graph_from_data_frame(d=edges_164, vertices=nodes, directed=TRUE)
+net_164
+net_172 = graph_from_data_frame(d=edges_172, vertices=nodes, directed=TRUE)
+```
+
+## Pick the mesure of centrality
+1. Degree centrality is defined as the number of links incident upon a node
+2. Eigenvector Centrality is an algorithm that measures the transitive influence of nodes. A high eigenvector score means that a node is connected to many nodes who themselves have high scores.
+3. Closeness centrality is a measure of the average shortest distance from each vertex to each other vertex
+4. Betweenness centrality is a way of detecting the amount of influence a node has over the flow of information in a graph.
+```{r}
+## Degree Centrality
+nodes$dc <- degree(net_164)
+nodes$dc <- degree(net_172)
+
+## Eigenvector Centrality
+nodes$ec <- evcent(net_164)$vector
+nodes$ec <- evcent(net_172)$vector
+
+## Closeness Centrality
+nodes$cc <- closeness(net_164)
+nodes$cc <- closeness(net_172)
+
+## Betweenness Centrality
+nodes$bc <- betweenness(net_164)
+nodes$bc <- betweenness(net_172)
+
+
+```
+Join the node dataset with original dataset to do the linear regression
+```{r}
+nodes = left_join(nodes,df%>%filter(wg== 164|wg == 172),by = c("id" = "examiner_id"))
+## select the variable I want to examine
+nodes = nodes %>% select (id,dc,ec,bc,cc,examiner_art_unit,app_proc_time,race,gender,tenure)
+
+## drop na
+nodes = drop_na(nodes)
+## change categorical variables into factors
+nodes = nodes %>% mutate_at(vars(gender, race),
+            as.factor)
+```
+
+## Linear Regression
+```{r}
+# create linear regression
+lr <- lm(app_proc_time ~ dc+ec+bc+cc+examiner_art_unit+race+gender+tenure,nodes)
+# view model summary
+summary(lr)
+```
+## Analyze Result
+
+Based on the linear regression result, application process time is significantly affected by tenure and examiner's art unit. Longer tenure time results in longer application process time. Also, among the two art unit that I examine, 164 and 172, 172's examiners took longer time to process the application.
+
+Gender did not affect the relationship. Some other variable that are statistically significant for application processing time are closeness centrality and eigenvector centrality. A examiner with high closeness centrality will have shorter processing time. This make senses because higher closeness centrality indicate they has shorter "path" to other examiners. They can find the help they need easily.
